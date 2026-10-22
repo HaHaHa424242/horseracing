@@ -1,0 +1,1197 @@
+<title>你快樂馬</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap">
+<style>
+  /* Layout: episode tabs, one 16:9 canvas stage, transport controls, then a result legend. */
+  :root {
+    --bg: #eceff3;
+    --fg: #1b2430;
+    --muted: #5a6776;
+    --line: #cbd3dc;
+    --panel: #ffffff;
+    --accent: #d93a72;
+    --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171d; --fg: #e8edf2; --muted: #9aa7b5; --line: #2b343f; --panel: #1b222b; --accent: #ff7aa2;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171d; --fg: #e8edf2; --muted: #9aa7b5; --line: #2b343f; --panel: #1b222b; --accent: #ff7aa2;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.6;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 40px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .eyebrow { margin: 0; color: var(--accent); font-weight: 700; letter-spacing: .12em; font-size: 13px; }
+  h1 { margin: 2px 0 0; font-size: clamp(26px, 5vw, 38px); font-weight: 900; line-height: 1.2; text-wrap: balance; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stage { border-radius: 10px; overflow: hidden; background: #0b1017; border: 1px solid var(--line); }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; max-width: 100%; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+  button {
+    font: inherit; font-weight: 700; color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer; min-width: 84px;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #play { background: var(--accent); border-color: var(--accent); color: #fff; }
+  input[type="range"] { flex: 1 1 200px; min-width: 0; accent-color: var(--accent); }
+  #clock { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 84px; text-align: right; }
+  .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .legend li { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; font-weight: 700; }
+  .legend .num { margin-left: auto; font-size: 22px; font-weight: 900; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .note { margin: 0; color: var(--muted); max-width: 65ch; }
+</style>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">三支抽籤影片</p>
+    <h1>終點攝影賽馬</h1>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button type="button" data-ep="0" aria-pressed="true">海馬篇</button>
+    <button type="button" data-ep="1" aria-pressed="false">二維馬篇</button>
+    <button type="button" data-ep="2" aria-pressed="false">你快樂馬篇</button>
+  </div>
+
+  <div class="stage"><canvas id="stage" aria-label="卡通賽馬動畫，每支影片的結尾會揭曉一個數字"></canvas></div>
+
+  <div class="bar">
+    <button id="play" type="button">暫停</button>
+    <button id="replay" type="button">重播</button>
+    <input id="seek" type="range" min="0" max="2250" value="0" aria-label="播放進度">
+    <span id="clock">0:00 / 0:22</span>
+  </div>
+
+  <ul class="legend">
+    <li>海馬<span class="num">67</span></li>
+    <li>二維馬<span class="num">17</span></li>
+    <li>你快樂馬<span class="num">1</span></li>
+  </ul>
+  <p class="note">每種籤對應一支影片，結尾的數字就是結果。同一種籤的人看到同一支。</p>
+</main>
+
+<script>
+(function () {
+  var W = 1280, H = 720;
+  var cv = document.getElementById('stage');
+  cv.width = W; cv.height = H;
+  var ctx = cv.getContext('2d');
+
+  var FONT = '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  try {
+    document.fonts.load('900 40px "Noto Sans TC"', '海馬二維馬你快樂嗎好不苦笑員工證緩衝廣告跳過驗證通過砰抽到號小');
+    document.fonts.load('700 40px "Noto Sans TC"', '預備三匹馬並駕齊驅衝線裁判我來數掃一下肚子裡好像有東西跌倒了觀眾席請選出所有含有的圖片載入中你是機器人猶豫');
+  } catch (e) {}
+
+  var A = 1.6, B = 7.6;
+  var START_X = 215, FINISH_X = 960, CELL = 6.6;
+  var NOSEOFF = { normal: 94, grin: 97, sea: 51, pixel: 20 * CELL };
+
+  var DEF = {
+    sea:   { look: 'sea',   name: '海馬',   color: '#ff9f43', dark: '#d9741a', belly: '#ffe3a8', silk: '#0ea5e9', f: 1.3, a: 0.04, ph: 0.4 },
+    pixel: { look: 'pixel', name: '二維馬', color: '#111111', dark: '#111111', silk: '#111111', f: 1.5, a: -0.04, ph: 1.9 },
+    grin:  { look: 'grin',  name: '你快樂馬', color: '#f6c453', dark: '#c99530', mane: '#b8731d', silk: '#e5484d', f: 1.1, a: 0.045, ph: 3.2 }
+  };
+  var LANES = [[1.0, 470], [1.15, 560], [1.3, 650]];
+
+  var EPS = [
+    { key: 'sea', cast: ['pixel', 'grin', 'sea'], endP: [0.96, 0.8, 0.88], freeAt: 999, stopT: 4.6, spawnT: 6.2,
+      refT: 6.0, bubble: '好香…', bubbleStart: 6.15, bubbleEnd: 8.2,
+      num: '67', line: '（88 隻全部過線，21 隻被裁判吃掉）' },
+    { key: 'pixel', cast: ['sea', 'grin', 'pixel'], endP: [0.97, 0.8, 0.9], freeAt: B, t1: 3.4, t2: 5.2,
+      C: 9.8, D: 12.2, E: 13.8, G: 23.4, END: 26.9,
+      refT: B + 0.3, bubble: '我來掃一下！', bubbleStart: B + 0.45, bubbleEnd: 10.7,
+      num: '17', line: '（驗證通過，你是牛或馬）' },
+    { key: 'grin', cast: ['sea', 'pixel', 'grin'], endP: [0.97, 0.82, 0.9], freeAt: B, V: 5.2, arrive: 7.2,
+      C: 7.8, D: 9.0, G: 17.0, END: 20.5,
+      refT: null, bubble: null,
+      num: '1', line: '（毫不猶豫）' }
+  ];
+
+  var ep = EPS[0], horses = [];
+
+  function rng(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+  function eio(x) { x = clamp(x, 0, 1); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  function eout(x) { x = clamp(x, 0, 1); return 1 - Math.pow(1 - x, 3); }
+  function oback(x) { x = clamp(x, 0, 1); var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+
+  function rrPath(c, x, y, w, h, r) {
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function rr(c, x, y, w, h, r) { c.beginPath(); rrPath(c, x, y, w, h, r); }
+
+  function starShape(c, x, y, r) {
+    c.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.45 : r;
+      if (i === 0) c.moveTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+      else c.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+    }
+    c.closePath();
+  }
+
+  function prog(h, t) {
+    var x = clamp((t - A) / (B - A), 0, 1);
+    return h.endP * x + h.a * Math.sin(h.f * 6.2832 * x + h.ph) * Math.sin(Math.PI * x);
+  }
+
+  function pos(h, t) {
+    var tt = Math.min(t, ep.freeAt), s = h.s, gy = h.gy;
+    var hasStop = ep.stopT !== undefined;
+    var stop = hasStop && tt >= ep.stopT;
+    var te = hasStop ? Math.min(tt, ep.stopT) : tt;
+    if (ep.key === 'pixel' && h.look === 'pixel' && te >= ep.t1 && te < ep.t2) te = ep.t1;
+    var tq = h.look === 'pixel' ? Math.floor(te * 8) / 8 : te;
+    var veer = ep.key === 'grin' && h.star;
+    var racing = tt >= A && !stop && !(veer && tt >= ep.arrive);
+    var p = 0;
+    if (tt >= A) p = prog(h, tq);
+    var nx = START_X + p * (FINISH_X - START_X);
+    if (veer && tt >= ep.V) {
+      var e0 = eio((tt - ep.V) / (ep.arrive - ep.V));
+      nx = START_X + prog(h, ep.V) * (FINISH_X - START_X) + 50 * e0;
+      s = h.s * (1 - 0.4 * e0);
+      gy = h.gy - (h.gy - 352) * e0;
+    }
+    var gal = racing ? Math.max(0, tq - A) * 13 : 0.3 + 0.25 * Math.sin(tt * 4 + h.ph);
+    var bob;
+    if (h.look === 'sea') bob = (ep.key === 'sea' && stop) ? 0 : Math.sin(tt * 3 + h.ph) * 8;
+    else if (h.look === 'pixel') bob = racing ? -(Math.floor(tt * 8) % 2) * 3 : 0;
+    else bob = racing ? -Math.abs(Math.sin(gal * 0.5 + h.ph)) * 7 : Math.sin(tt * 5 + h.ph) * 1.5;
+    var ox = nx - NOSEOFF[h.look] * s;
+    var oy = h.look === 'sea' ? gy - 78 * s : (h.look === 'pixel' ? gy - 13 * CELL * s : gy - 72 * s);
+    return { ox: ox, oy: oy, gal: gal, bob: bob, tt: tt, p: p, s: s, gy: gy, t: t };
+  }
+
+  function anchor(h, lx, ly, t) {
+    var P = pos(h, t === undefined ? B : t);
+    return { x: P.ox + lx * P.s, y: P.oy + P.bob + ly * P.s };
+  }
+
+  function build(i) {
+    ep = EPS[i];
+    horses = ep.cast.map(function (key, li) {
+      var d = DEF[key], h = {};
+      for (var k in d) h[k] = d[k];
+      h.s = LANES[li][0]; h.gy = LANES[li][1]; h.star = (li === 2); h.endP = ep.endP[li];
+      return h;
+    });
+    if (ep.key === 'sea') {
+      var star = horses[2], P = pos(star, ep.stopT), s = P.s;
+      ep.belly = { x: P.ox + 10 * s - 55.8 * s, y: P.gy - 20.9 * s };
+      var r = rng(7), arr = [], n, idx = [], crossAll = 0;
+      for (n = 0; n < 88; n++) {
+        var t0 = ep.spawnT + n * 0.028;
+        var Tf = 0.45 + r() * 0.3, vx = 60 + r() * 120, yg = 470 + r() * 190, Hh = 90 + r() * 80, vr = 320 + r() * 140;
+        var xf = ep.belly.x + vx * Tf;
+        var tc = xf >= FINISH_X ? t0 + Tf : t0 + Tf + (FINISH_X - xf) / vr;
+        arr.push({ t0: t0, Tf: Tf, vx: vx, yg: yg, H: Hh, vr: vr, xf: xf, gx: 1010 + r() * 220, tc: tc, ph: r() * 6, eaten: false, te: 0 });
+        idx.push(n);
+        if (tc > crossAll) crossAll = tc;
+      }
+      for (n = idx.length - 1; n > 0; n--) { var j = Math.floor(r() * (n + 1)), tmp = idx[n]; idx[n] = idx[j]; idx[j] = tmp; }
+      ep.crossAll = crossAll;
+      ep.eatStart = crossAll + 2.6;
+      for (n = 0; n < 21; n++) { var b0 = arr[idx[n]]; b0.eaten = true; b0.te = ep.eatStart + n * 0.18; }
+      ep.eatEnd = ep.eatStart + 20 * 0.18 + 0.5;
+      ep.babies = arr;
+      ep.G = ep.eatEnd + 1.2;
+      ep.END = ep.G + 3.5;
+    }
+  }
+
+  function tag(c, name, x, y, w, silk) {
+    c.fillStyle = '#fff';
+    rr(c, x - w / 2, y - 12, w, 24, 6); c.fill();
+    c.strokeStyle = silk; c.lineWidth = 2.5; c.stroke();
+    c.fillStyle = '#1b2430';
+    c.font = '900 ' + Math.min(15, (w - 10) / name.length) + 'px ' + FONT;
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(name, x, y + 1);
+  }
+
+  // ---------- horse looks ----------
+  function drawNormal(c, h, P, grin) {
+    var gal = P.gal;
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    function leg(hx, hy, offs, col) {
+      var a1 = Math.sin(gal + offs) * 0.9;
+      var a2 = -(0.7 + 0.6 * Math.sin(gal + offs + 1.5));
+      var kx = hx + Math.sin(a1) * 30, ky = hy + Math.cos(a1) * 30;
+      var fx = kx + Math.sin(a1 + a2) * 28, fy = ky + Math.cos(a1 + a2) * 28;
+      c.strokeStyle = col; c.lineWidth = 11;
+      c.beginPath(); c.moveTo(hx, hy); c.lineTo(kx, ky); c.lineTo(fx, fy); c.stroke();
+      c.fillStyle = '#3a2a22';
+      c.beginPath(); c.arc(fx, fy, 6, 0, 6.3); c.fill();
+    }
+    leg(-30, 14, 0.6, h.dark);
+    leg(30, 14, 3.4, h.dark);
+
+    var sway = Math.sin(gal) * 10;
+    c.strokeStyle = h.mane; c.lineWidth = 10;
+    c.beginPath(); c.moveTo(-44, -8); c.quadraticCurveTo(-72, -14 + sway, -88, 10 + sway * 1.5); c.stroke();
+
+    c.fillStyle = h.color;
+    c.beginPath(); c.ellipse(0, 0, 48, 25, 0, 0, 6.3); c.fill();
+
+    c.strokeStyle = h.color; c.lineWidth = 30;
+    c.beginPath(); c.moveTo(26, -6); c.lineTo(58, -38); c.stroke();
+    c.strokeStyle = h.mane; c.lineWidth = 9;
+    c.beginPath(); c.moveTo(15, -17); c.lineTo(47, -49); c.stroke();
+
+    c.save();
+    c.translate(74, -42); c.rotate(0.55);
+    c.fillStyle = h.color;
+    c.beginPath(); c.ellipse(0, 0, grin ? 26 : 22, grin ? 15 : 12, 0, 0, 6.3); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.25)';
+    c.beginPath(); c.ellipse(14, 2, 9, 8.5, 0, 0, 6.3); c.fill();
+    if (grin) {
+      c.fillStyle = '#5a0f20';
+      c.beginPath(); c.moveTo(-14, 3); c.quadraticCurveTo(4, 27, 26, 0); c.quadraticCurveTo(6, 12, -14, 3); c.closePath(); c.fill();
+      c.save(); c.translate(6, 11); c.rotate(Math.sin(P.t * 16 + h.ph) * 0.9);
+      c.strokeStyle = '#ff7b9c'; c.lineWidth = 8; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 22); c.stroke();
+      c.fillStyle = '#ff5f87'; c.beginPath(); c.ellipse(0, 24, 6, 5, 0, 0, 6.3); c.fill();
+      c.restore();
+      c.strokeStyle = '#fff'; c.lineWidth = 4;
+      c.beginPath(); c.moveTo(-12, 4); c.quadraticCurveTo(6, 13, 24, 1.5); c.stroke();
+      c.fillStyle = 'rgba(255,90,110,0.55)';
+      c.beginPath(); c.arc(-8, -4, 5, 0, 6.3); c.fill();
+    } else {
+      c.fillStyle = '#2b1b14';
+      c.beginPath(); c.arc(18, -2, 2, 0, 6.3); c.fill();
+    }
+    c.restore();
+    c.fillStyle = h.color;
+    c.beginPath(); c.moveTo(63, -52); c.lineTo(65, -70); c.lineTo(73, -54); c.closePath(); c.fill();
+
+    c.fillStyle = '#fff'; c.strokeStyle = '#2b1b14'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(76, -47, 6, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#111';
+    c.beginPath(); c.arc(77.5 + Math.sin(gal) * 1.6, -46 + Math.cos(gal) * 1.6, 3, 0, 6.3); c.fill();
+
+    c.fillStyle = h.silk;
+    rr(c, -26, -20, 52, 22, 6); c.fill();
+
+    c.strokeStyle = h.silk; c.lineWidth = 6;
+    c.beginPath(); c.moveTo(6, -40); c.lineTo(44, -34); c.stroke();
+    c.fillStyle = h.silk;
+    rr(c, -12, -52, 24, 28, 7); c.fill();
+    c.fillStyle = '#f2c9a0';
+    c.beginPath(); c.arc(9, -60, 8, 0, 6.3); c.fill();
+    c.fillStyle = h.silk;
+    c.beginPath(); c.arc(9, -62, 9, Math.PI, 0); c.fill();
+
+    leg(-30, 14, 0, h.color);
+    leg(30, 14, 2.8, h.color);
+  }
+
+  function seaBody(c, tt, col, belly, fin, simple, ph) {
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    if (!simple) {
+      for (var i = 0; i < 6; i++) {
+        var q = (tt * 0.9 + i / 6) % 1;
+        var bx = -34 - i * 7 + Math.sin(tt * 5 + i) * 4, by = -10 - q * 80;
+        c.strokeStyle = 'rgba(255,255,255,' + (0.9 * (1 - q)).toFixed(2) + ')';
+        c.lineWidth = 2;
+        c.beginPath(); c.arc(bx, by, 3 + (i * 7) % 3, 0, 6.3); c.stroke();
+      }
+    }
+    c.save(); c.translate(-12, -6); c.rotate(Math.sin(tt * 14) * 0.22);
+    c.fillStyle = fin;
+    c.beginPath(); c.moveTo(0, -24); c.quadraticCurveTo(-34, -4, 0, 26); c.closePath(); c.fill();
+    if (!simple) {
+      c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 2;
+      for (var j = -16; j <= 16; j += 8) { c.beginPath(); c.moveTo(0, j); c.lineTo(-18, j * 0.6); c.stroke(); }
+    }
+    c.restore();
+    c.strokeStyle = col; c.lineWidth = 13;
+    c.beginPath(); c.moveTo(6, 18); c.bezierCurveTo(16, 42, -2, 58, -18, 48); c.bezierCurveTo(-30, 40, -22, 26, -11, 32); c.stroke();
+    c.lineWidth = 40;
+    c.beginPath(); c.moveTo(10, -44); c.quadraticCurveTo(28, -12, 8, 24); c.stroke();
+    c.strokeStyle = belly; c.lineWidth = 16;
+    c.beginPath(); c.moveTo(20, -38); c.quadraticCurveTo(36, -12, 18, 20); c.stroke();
+    if (!simple) {
+      c.strokeStyle = 'rgba(120,60,0,0.25)'; c.lineWidth = 2;
+      for (var b = -30; b <= 14; b += 11) { c.beginPath(); c.moveTo(14 + (b > -10 ? 4 : 0), b); c.lineTo(34, b + 2); c.stroke(); }
+    }
+    c.fillStyle = col;
+    c.beginPath(); c.ellipse(14, -58, 20, 16, 0.2, 0, 6.3); c.fill();
+    c.strokeStyle = col; c.lineWidth = 10;
+    c.beginPath(); c.moveTo(28, -56); c.lineTo(46, -53); c.stroke();
+    c.fillStyle = col;
+    c.beginPath(); c.moveTo(2, -70); c.lineTo(6, -84); c.lineTo(12, -72); c.lineTo(18, -86); c.lineTo(22, -72); c.closePath(); c.fill();
+    c.fillStyle = fin;
+    c.save(); c.translate(18, -42); c.rotate(Math.sin(tt * 16) * 0.35);
+    c.beginPath(); c.ellipse(-6, 0, 10, 5, 0, 0, 6.3); c.fill(); c.restore();
+    if (!simple) {
+      c.fillStyle = '#fff'; c.strokeStyle = '#2b1b14'; c.lineWidth = 2;
+      c.beginPath(); c.arc(14, -60, 9, 0, 6.3); c.fill(); c.stroke();
+      c.fillStyle = '#111';
+      c.beginPath(); c.arc(14 + Math.cos(tt * 5 + ph) * 3.5, -60 + Math.sin(tt * 5 + ph) * 3.5, 4.5, 0, 6.3); c.fill();
+    }
+  }
+
+  function drawSea(c, h, P) {
+    var fallen = ep.key === 'sea' && P.tt >= ep.stopT;
+    var st = ep.key === 'sea' ? Math.min(P.tt, ep.stopT) : P.tt;
+    seaBody(c, st, h.color, h.belly, '#ffd36b', false, h.ph);
+    if (fallen) {
+      var open = eout((P.tt - (ep.stopT + 0.8)) / 0.3);
+      if (open > 0) {
+        c.fillStyle = '#7a2f12';
+        c.beginPath(); c.ellipse(27, -10, 11 * open + 1, 22 * open + 1, 0.1, 0, 6.3); c.fill();
+        c.strokeStyle = '#ffd08a'; c.lineWidth = 3; c.stroke();
+      }
+      c.fillStyle = '#ffd23f'; c.strokeStyle = '#a36a00'; c.lineWidth = 1.5;
+      for (var k = 0; k < 3; k++) {
+        var ang = P.tt * 6 + k * 2.09;
+        starShape(c, 14 + Math.cos(ang) * 28, -92 + Math.sin(ang) * 8, 7);
+        c.fill(); c.stroke();
+      }
+    }
+  }
+
+  var PIX = [
+    '...............XX...',
+    '..............XXXX..',
+    '.............XXXXXXX',
+    '............XXXXXXXX',
+    '...........XXXXXXXX.',
+    '....XXXXXXXXXXXXXXX.',
+    'XXXXXXXXXXXXXXXXXX..',
+    'XXXXXXXXXXXXXXXXXX..',
+    'XXXXXXXXXXXXXXXXX...'
+  ];
+  var LEGS = [[1, 2, 5, 6, 12, 13, 16, 17], [2, 3, 4, 5, 13, 14, 15, 16]];
+
+  function pixCell(c, r, col, black, dx) {
+    var x = col * CELL + dx, y = r * CELL;
+    c.fillStyle = black ? '#111' : '#f4f4f4';
+    c.fillRect(x, y, CELL + 0.4, CELL + 0.4);
+    if (!black) { c.strokeStyle = 'rgba(0,0,0,0.22)'; c.lineWidth = 0.6; c.strokeRect(x + 0.3, y + 0.3, CELL - 0.6, CELL - 0.6); }
+  }
+
+  function drawPixel(c, h, P) {
+    var frame = Math.floor(P.tt * 8) % 2;
+    var glitch = ep.key === 'pixel' && P.tt >= ep.t2 && P.tt < ep.t2 + 0.5;
+    var gk = glitch ? 1 - (P.tt - ep.t2) / 0.5 : 0;
+    var r, k, dx;
+    for (r = 0; r < 13; r++) {
+      dx = glitch ? Math.sin(r * 2.7 + P.tt * 70) * 9 * gk : 0;
+      if (r < PIX.length) {
+        for (k = 0; k < 20; k++) {
+          if (PIX[r].charAt(k) !== 'X') continue;
+          var black = ((r * 7 + k * 13 + r * k) % 5) < 3;
+          if (r >= 6 && r <= 8 && ((k >= 1 && k <= 3) || (k >= 14 && k <= 16))) {
+            var kk = (k >= 14 ? k - 14 : k - 1);
+            black = !((r - 6) === 1 && kk === 1);
+          }
+          pixCell(c, r, k, black, dx);
+        }
+      } else if (r >= 9) {
+        var cols = LEGS[frame];
+        for (k = 0; k < cols.length; k++) pixCell(c, r, cols[k], ((r + cols[k]) % 3) !== 0, dx);
+      }
+    }
+    var ex = 15.5 * CELL, ey = 3.4 * CELL;
+    c.fillStyle = '#fff'; c.strokeStyle = '#111'; c.lineWidth = 1.6;
+    c.beginPath(); c.arc(ex, ey, 6.5, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#111';
+    c.beginPath(); c.arc(ex + Math.cos(P.tt * 6) * 2.5, ey + Math.sin(P.tt * 6) * 2.5, 3.2, 0, 6.3); c.fill();
+  }
+
+  function drawHorse(c, h, t) {
+    var P = pos(h, t), s = P.s, gy = P.gy;
+    var fall = 0;
+    if (ep.key === 'sea' && h.look === 'sea' && P.tt >= ep.stopT) fall = eio((P.tt - ep.stopT) / 0.7);
+
+    c.fillStyle = 'rgba(40,24,10,0.28)';
+    c.beginPath();
+    if (fall > 0) c.ellipse(P.ox - 30 * s, gy + 4, 90 * s, 9 * s, 0, 0, 6.3);
+    else c.ellipse(P.ox + 8 * s + (h.look === 'sea' ? 40 * s : 0), gy + 4, 70 * s, 9 * s, 0, 0, 6.3);
+    c.fill();
+
+    c.save();
+    c.translate(P.ox, P.oy + P.bob);
+    c.scale(s, s);
+    if (fall > 0) {
+      var dy = ((gy - (P.oy + P.bob + 50 * s)) / s) * fall;
+      c.translate(0, dy);
+      var bt = P.tt - ep.stopT - 0.7;
+      var bounce = bt > 0 ? 0.1 * Math.sin(bt * 14) * Math.exp(-bt * 4) : 0;
+      c.translate(10, 50); c.rotate(-1.45 * fall + bounce); c.translate(-10, -50);
+    }
+    if (h.look === 'sea') drawSea(c, h, P);
+    else if (h.look === 'pixel') drawPixel(c, h, P);
+    else drawNormal(c, h, P, h.look === 'grin');
+    c.restore();
+
+    if (ep.key === 'pixel' && h.look === 'pixel' && P.tt >= ep.t1 && P.tt < ep.t2) {
+      var bx = P.ox + 10 * CELL * s, by = P.oy - 28;
+      c.save();
+      c.fillStyle = 'rgba(10,12,16,0.9)'; rr(c, bx - 78, by - 24, 156, 48, 12); c.fill();
+      c.strokeStyle = '#7de3ff'; c.lineWidth = 5; c.lineCap = 'round';
+      c.beginPath(); c.arc(bx - 44, by, 12, P.tt * 8, P.tt * 8 + 4.2); c.stroke();
+      c.fillStyle = '#fff'; c.font = '700 22px ' + FONT; c.textAlign = 'left'; c.textBaseline = 'middle';
+      c.fillText('緩衝中…', bx - 22, by + 1);
+      c.restore();
+    }
+  }
+
+  function babyXY(b, u) {
+    var x, y, rot;
+    if (u < b.Tf) {
+      var f = u / b.Tf;
+      x = ep.belly.x + b.vx * u;
+      y = ep.belly.y + (b.yg - ep.belly.y) * f - 4 * b.H * f * (1 - f);
+      rot = (f - 0.5) * 0.9;
+    } else {
+      var run = b.xf + b.vr * (u - b.Tf), moving = run < b.gx;
+      x = Math.min(b.gx, run);
+      y = b.yg - Math.abs(Math.sin((u - b.Tf) * (moving ? 12 : 4) + b.ph)) * (moving ? 9 : 3);
+      rot = Math.sin(u * 9 + b.ph) * (moving ? 0.15 : 0.08);
+    }
+    return { x: x, y: y, rot: rot };
+  }
+
+  var MOUTH = { x: 1160, y: 404 };
+
+  function drawBabies(c, t) {
+    if (ep.key !== 'sea') return;
+    var i, b, u, q, f, base, sc;
+    for (i = 0; i < ep.babies.length; i++) {
+      b = ep.babies[i]; u = t - b.t0;
+      if (u < 0) continue;
+      if (b.eaten && t >= b.te + 0.5) continue;
+      q = babyXY(b, u); sc = 0.2;
+      if (b.eaten && t >= b.te) {
+        base = babyXY(b, b.te - b.t0);
+        f = eio((t - b.te) / 0.5);
+        q = { x: base.x + (MOUTH.x - base.x) * f, y: base.y + (MOUTH.y - base.y) * f - Math.sin(f * 3.14) * 50, rot: Math.sin(t * 40 + i) * 0.5 * f };
+        sc = 0.2 * (1 - 0.85 * f);
+      }
+      c.save();
+      c.translate(q.x, q.y); c.rotate(q.rot); c.scale(sc, sc); c.translate(0, -20);
+      seaBody(c, t + i, '#ff9f43', '#ffe3a8', '#ffd36b', true, 0);
+      c.restore();
+    }
+  }
+
+  function drawRef(c, t) {
+    var x = 1160, y = 520;
+    var raised = ep.refT !== null && ep.refT !== undefined && t >= ep.refT;
+    c.save();
+    c.lineCap = 'round';
+    c.fillStyle = 'rgba(40,24,10,0.28)';
+    c.beginPath(); c.ellipse(x, y + 3, 30, 7, 0, 0, 6.3); c.fill();
+    c.strokeStyle = '#2a2f3a'; c.lineWidth = 9;
+    c.beginPath(); c.moveTo(x - 8, y - 42); c.lineTo(x - 10, y); c.moveTo(x + 8, y - 42); c.lineTo(x + 10, y); c.stroke();
+    c.fillStyle = '#fafafa'; rr(c, x - 17, y - 96, 34, 56, 8); c.fill();
+    c.fillStyle = '#111'; c.fillRect(x - 17, y - 82, 34, 7); c.fillRect(x - 17, y - 66, 34, 7);
+    c.strokeStyle = '#fafafa'; c.lineWidth = 9;
+    c.beginPath(); c.moveTo(x - 14, y - 86);
+    if (raised) c.lineTo(x - 46, y - 124); else c.lineTo(x - 24, y - 58);
+    c.stroke();
+    var hk = 1;
+    if (ep.key === 'sea') hk = 1 + 3.5 * Math.min(eio((t - (ep.eatStart - 0.3)) / 0.4), 1 - eio((t - (ep.eatEnd + 0.4)) / 0.5));
+    c.save();
+    c.translate(x, y - 98); c.scale(hk, hk);
+    c.fillStyle = '#f2c9a0'; c.beginPath(); c.arc(0, -14, 15, 0, 6.3); c.fill();
+    c.fillStyle = '#111'; c.beginPath(); c.arc(0, -18, 16, Math.PI, 0); c.fill();
+    c.fillRect(-20, -20, 40, 4);
+    c.beginPath(); c.arc(-5, -12, 1.8, 0, 6.3); c.arc(5, -12, 1.8, 0, 6.3); c.fill();
+    if (hk > 1.05) {
+      var my = 3 + Math.abs(Math.sin(t * 14)) * 4;
+      c.fillStyle = '#5a0f20';
+      c.beginPath(); c.ellipse(0, -4, 9, my, 0, 0, 6.3); c.fill();
+      c.fillStyle = '#ff7b9c';
+      c.beginPath(); c.ellipse(0, -4 + my * 0.5, 5, my * 0.45, 0, 0, 6.3); c.fill();
+      c.fillStyle = '#fff';
+      for (var tk = -3; tk <= 3; tk++) c.fillRect(tk * 2.4 - 1, -4 - my, 2, 2.4);
+    }
+    c.restore();
+    if (raised) {
+      if (ep.key === 'pixel') {
+        c.fillStyle = '#222'; rr(c, x - 64, y - 150, 22, 38, 4); c.fill();
+        c.fillStyle = '#7de3ff'; rr(c, x - 61, y - 146, 16, 28, 2); c.fill();
+      }
+    }
+    c.restore();
+
+    var bsel = null;
+    if (ep.bubble && t >= ep.bubbleStart && t < ep.bubbleEnd) bsel = [ep.bubble, ep.bubbleStart];
+    if (ep.key === 'sea' && t >= ep.eatStart && t < ep.eatStart + 1.6) bsel = ['開動！', ep.eatStart];
+    if (bsel) {
+      var k = oback((t - bsel[1]) / 0.35);
+      c.save();
+      c.translate(x - 60, 300);
+      c.scale(k, k);
+      c.fillStyle = '#fff'; c.strokeStyle = '#1b2430'; c.lineWidth = 4;
+      rr(c, -130, -36, 260, 72, 18); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(70, 34); c.lineTo(104, 74); c.lineTo(100, 32); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#fff'; c.fillRect(72, 30, 26, 8);
+      c.fillStyle = '#d93a72'; c.font = '900 34px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(bsel[0], 0, 2);
+      c.restore();
+    }
+  }
+
+  function drawScene(c, t) {
+    var tt = Math.min(t, ep.freeAt);
+
+    var g = c.createLinearGradient(0, 0, 0, 380);
+    g.addColorStop(0, '#6fbdee'); g.addColorStop(1, '#d6f0fb');
+    c.fillStyle = g; c.fillRect(0, 0, W, 380);
+    c.fillStyle = 'rgba(255,255,255,0.85)';
+    [[180, 70, 80], [520, 110, 100], [980, 60, 90]].forEach(function (q) {
+      c.beginPath();
+      c.ellipse(q[0], q[1], q[2], 24, 0, 0, 6.3);
+      c.ellipse(q[0] + q[2] * 0.5, q[1] - 14, q[2] * 0.55, 22, 0, 0, 6.3);
+      c.fill();
+    });
+
+    c.fillStyle = '#56657f'; c.fillRect(0, 170, W, 215);
+    var heads = ['#f2c9a0', '#d9a27a', '#f7d7b8', '#b9805a', '#e8b690'];
+    var shirts = ['#e5484d', '#3b82f6', '#f5b301', '#22a06b', '#ffffff', '#9b5de5'];
+    var amp = tt < A ? 1.5 : (ep.stopT !== undefined && tt >= ep.stopT ? 9 : 5);
+    for (var r = 0; r < 6; r++) {
+      var ry = 212 + r * 28;
+      c.fillStyle = r % 2 ? '#4d5b75' : '#5f6f8a';
+      c.fillRect(0, ry + 8, W, 20);
+      for (var i = 0; i < 52; i++) {
+        var px = i * 26 + (r % 2) * 13 + 6;
+        var py = ry - Math.abs(Math.sin(tt * 6 + i * 1.7 + r)) * amp;
+        c.fillStyle = shirts[(i * 5 + r * 3) % 6];
+        c.beginPath(); c.arc(px, py + 22, 11, Math.PI, 0); c.fill();
+        c.fillStyle = heads[(i * 7 + r * 3) % 5];
+        c.beginPath(); c.arc(px, py + 6, 8.5, 0, 6.3); c.fill();
+      }
+    }
+
+    c.fillStyle = '#f4f4f4'; c.fillRect(0, 372, W, 8);
+    c.fillStyle = '#d9d9d9';
+    for (var fx = 10; fx < W; fx += 60) c.fillRect(fx, 380, 6, 14);
+    c.fillStyle = '#c68a58'; c.fillRect(0, 392, W, H - 392);
+    c.fillStyle = 'rgba(0,0,0,0.05)';
+    for (var sx = 0; sx < W; sx += 90) c.fillRect(sx, 392, 45, H - 392);
+    c.strokeStyle = '#ffffff'; c.lineWidth = 4; c.setLineDash([30, 22]);
+    [425, 515, 605, 695].forEach(function (ly) {
+      c.beginPath(); c.moveTo(0, ly); c.lineTo(W, ly); c.stroke();
+    });
+    c.setLineDash([]);
+
+    c.fillStyle = '#fff'; c.fillRect(START_X + 4, 425, 4, 270);
+    if (t < A + 0.3) {
+      var gw = t < A ? 1 : 1 - (t - A) / 0.3;
+      c.fillStyle = '#3d4250';
+      c.fillRect(START_X + 10, 412, 9 * gw, 290);
+    }
+
+    for (var fy = 392, k2 = 0; fy < H; fy += 14, k2++) {
+      c.fillStyle = k2 % 2 ? '#111' : '#fff'; c.fillRect(FINISH_X - 7, fy, 14, 14);
+      c.fillStyle = k2 % 2 ? '#fff' : '#111'; c.fillRect(FINISH_X + 7, fy, 14, 14);
+    }
+    c.fillStyle = '#2a2f3a'; c.fillRect(FINISH_X - 2, 366, 6, 26);
+    c.fillStyle = '#111'; rr(c, FINISH_X - 56, 326, 112, 42, 6); c.fill();
+    c.fillStyle = '#fff'; c.font = '900 24px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('終點', FINISH_X, 348);
+
+    drawRef(c, t);
+    for (var i2 = 0; i2 < horses.length; i2++) drawHorse(c, horses[i2], t);
+    drawBabies(c, t);
+  }
+
+  // ---------- full-screen inserts ----------
+  function drawScan(c, t, u) {
+    var hx = W / 2 - 320, hy = H / 2 - 210, hw = 640, hh = 420;
+    c.fillStyle = 'rgba(0,0,0,0.85)';
+    c.beginPath(); c.rect(0, 0, W, H); rrPath(c, hx, hy, hw, hh, 26); c.fill('evenodd');
+    c.strokeStyle = '#35e08a'; c.lineWidth = 6; c.lineCap = 'round';
+    var L = 52;
+    [[hx, hy, 1, 1], [hx + hw, hy, -1, 1], [hx, hy + hh, 1, -1], [hx + hw, hy + hh, -1, -1]].forEach(function (q) {
+      c.beginPath(); c.moveTo(q[0] + q[2] * L, q[1]); c.lineTo(q[0], q[1]); c.lineTo(q[0], q[1] + q[3] * L); c.stroke();
+    });
+    var ly = hy + (0.5 + 0.5 * Math.sin(u * 4.2)) * hh;
+    c.save();
+    c.shadowColor = '#35e08a'; c.shadowBlur = 16;
+    c.strokeStyle = '#7dffb8'; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(hx + 14, ly); c.lineTo(hx + hw - 14, ly); c.stroke();
+    c.restore();
+    c.fillStyle = '#9dffc9'; c.font = '700 22px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('對準馬身上的 QR code', W / 2, hy - 28);
+  }
+
+  function checkMark(c, x, y, s, col) {
+    c.save();
+    c.strokeStyle = col; c.lineWidth = s * 0.16; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(x - s * 0.5, y); c.lineTo(x - s * 0.15, y + s * 0.35); c.lineTo(x + s * 0.5, y - s * 0.35); c.stroke();
+    c.restore();
+  }
+
+  function drawTile(c, i, x, y) {
+    var words = ['木馬', '河馬', '蠻牛', '斑馬', 'TSMC', '驢', '牛', '鹿', '馬'];
+    var w = words[i];
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = w === 'TSMC' ? '#d6001c' : '#1b2430';
+    c.font = '900 ' + (w === 'TSMC' ? 30 : (w.length > 1 ? 36 : 54)) + 'px ' + FONT;
+    c.fillText(w, x, y + 2);
+  }
+
+  function drawPhone(c, t, u) {
+    var slide = (1 - eout(u / 0.5)) * H;
+    c.save();
+    c.translate(0, slide);
+    c.fillStyle = '#0b1017'; c.fillRect(0, -H, W, H * 2);
+    var px = W / 2 - 190, py = 50, pw = 380, ph = 620;
+    c.fillStyle = '#1b2029'; rr(c, px - 14, py - 14, pw + 28, ph + 28, 54); c.fill();
+    c.fillStyle = '#f7f9fb'; rr(c, px, py, pw, ph, 40); c.fill();
+    c.save();
+    rr(c, px, py, pw, ph, 40); c.clip();
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    var cx = W / 2, i, v;
+
+    if (u < 1.2) {
+      c.fillStyle = '#5a6776'; c.font = '700 22px ' + FONT;
+      c.fillText('二維馬 · 掃描結果', cx, py + 84);
+      var ang = u * 6;
+      c.strokeStyle = '#e1e6ec'; c.lineWidth = 12;
+      c.beginPath(); c.arc(cx, py + 230, 50, 0, 6.3); c.stroke();
+      c.strokeStyle = '#d93a72'; c.lineCap = 'round';
+      c.beginPath(); c.arc(cx, py + 230, 50, ang, ang + 1.6); c.stroke();
+      c.fillStyle = '#1b2430'; c.font = '900 96px ' + FONT;
+      c.fillText(Math.min(99, Math.floor(u / 1.2 * 99)) + '%', cx, py + 380);
+      c.font = '700 30px ' + FONT;
+      c.fillText('載入中…', cx, py + 460);
+      c.fillStyle = '#5a6776'; c.font = '500 22px ' + FONT;
+      c.fillText('正在確認你是不是牛或馬…', cx, py + 520);
+    } else if (u < 3.6) {
+      v = u - 1.2;
+      c.fillStyle = '#ffe8a3'; c.fillRect(px, py + 60, pw, 300);
+      c.fillStyle = '#2a2f3a'; rr(c, px + 18, py + 74, 56, 26, 6); c.fill();
+      c.fillStyle = '#fff'; c.font = '700 16px ' + FONT; c.fillText('廣告', px + 46, py + 88);
+      c.fillStyle = '#c2410c'; c.font = '900 44px ' + FONT; c.fillText('馬馬虎虎保險', cx, py + 180);
+      c.fillStyle = '#d93a72'; c.font = '900 62px ' + FONT; c.fillText('買一送一！', cx, py + 262);
+      c.fillStyle = '#7a5a12'; c.font = '500 20px ' + FONT; c.fillText('（跑得再慢也能理賠）', cx, py + 322);
+      var n = Math.max(1, Math.ceil(2.4 - v));
+      c.fillStyle = 'rgba(0,0,0,0.55)'; c.beginPath(); c.arc(px + pw - 44, py + 94, 24, 0, 6.3); c.fill();
+      c.fillStyle = '#fff'; c.font = '900 26px ' + FONT; c.fillText(String(n), px + pw - 44, py + 95);
+      c.fillStyle = '#cfd6de'; rr(c, px + pw - 172, py + 400, 140, 46, 10); c.fill();
+      c.fillStyle = '#7b8794'; c.font = '700 20px ' + FONT; c.fillText('跳過 (' + n + ')', px + pw - 102, py + 424);
+      c.fillStyle = '#5a6776'; c.font = '500 22px ' + FONT; c.fillText('請先看完廣告', cx, py + 520);
+    } else if (u < 8.4) {
+      v = u - 3.6;
+      c.fillStyle = '#1a73e8'; c.fillRect(px, py + 52, pw, 96);
+      c.fillStyle = '#fff'; c.font = '700 20px ' + FONT; c.fillText('你是機器人嗎？', cx, py + 80);
+      c.font = '900 22px ' + FONT; c.fillText('選出含有「牛」或「馬」的圖片', cx, py + 116);
+      var x0 = px + 38, y0 = py + 170, ts = 96;
+      var selT = [0.3, 0.64, 0.98, 1.32, 2.84, -1, 1.66, -1, 2.0];
+      for (i = 0; i < 9; i++) {
+        var tx = x0 + (i % 3) * (ts + 8), ty = y0 + Math.floor(i / 3) * (ts + 8);
+        var on = selT[i] >= 0 && v >= selT[i];
+        c.fillStyle = '#ffffff'; rr(c, tx, ty, ts, ts, 8); c.fill();
+        c.strokeStyle = on ? '#1a73e8' : '#d6dde6'; c.lineWidth = on ? 5 : 2; c.stroke();
+        drawTile(c, i, tx + ts / 2, ty + ts / 2);
+        if (on) {
+          c.fillStyle = '#1a73e8'; c.beginPath(); c.arc(tx + 16, ty + 16, 13, 0, 6.3); c.fill();
+          checkMark(c, tx + 16, ty + 16, 16, '#fff');
+        }
+      }
+      var by = y0 + 3 * (ts + 8) + 8;
+      c.fillStyle = v >= 3.5 ? '#1257b0' : '#1a73e8'; rr(c, x0, by, 3 * ts + 16, 50, 8); c.fill();
+      c.fillStyle = '#fff'; c.font = '900 24px ' + FONT; c.fillText('驗證', cx, by + 26);
+      if (v >= 3.7) { c.fillStyle = '#5a6776'; c.font = '500 22px ' + FONT; c.fillText('驗證中…', cx, by + 82); }
+    } else {
+      c.fillStyle = '#22a06b'; c.beginPath(); c.arc(cx, py + 210, 74, 0, 6.3); c.fill();
+      checkMark(c, cx, py + 210, 86, '#fff');
+      c.fillStyle = '#1b2430'; c.font = '900 44px ' + FONT; c.fillText('驗證通過', cx, py + 360);
+      c.fillStyle = '#d93a72'; c.font = '900 52px ' + FONT; c.fillText('你是牛或馬', cx, py + 450);
+    }
+    c.restore();
+    c.restore();
+  }
+
+  function drawBigHead(c, h, tt) {
+    c.save();
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = h.color; c.lineWidth = 34;
+    c.beginPath(); c.moveTo(-54, 80); c.lineTo(-10, 10); c.stroke();
+    c.strokeStyle = h.mane; c.lineWidth = 11;
+    c.beginPath(); c.moveTo(-70, 56); c.lineTo(-22, -6); c.stroke();
+    c.fillStyle = h.color;
+    c.beginPath(); c.moveTo(-18, -12); c.lineTo(-16, -34); c.lineTo(-2, -16); c.closePath(); c.fill();
+    c.save(); c.rotate(0.2);
+    c.fillStyle = h.color;
+    c.beginPath(); c.ellipse(0, 0, 30, 17, 0, 0, 6.3); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.25)';
+    c.beginPath(); c.ellipse(16, 2, 10, 9.5, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#5a0f20';
+    c.beginPath(); c.moveTo(-14, 3); c.quadraticCurveTo(6, 32, 30, 0); c.quadraticCurveTo(8, 12, -14, 3); c.closePath(); c.fill();
+    c.save(); c.translate(8, 14); c.rotate(Math.sin(tt * 14) * 0.85);
+    c.strokeStyle = '#ff7b9c'; c.lineWidth = 9; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 24); c.stroke();
+    c.fillStyle = '#ff5f87'; c.beginPath(); c.ellipse(0, 27, 7, 6, 0, 0, 6.3); c.fill();
+    c.restore();
+    c.strokeStyle = '#fff'; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(-12, 4); c.quadraticCurveTo(8, 14, 28, 1.5); c.stroke();
+    c.fillStyle = 'rgba(255,90,110,0.55)';
+    c.beginPath(); c.arc(-8, -5, 6, 0, 6.3); c.fill();
+    c.restore();
+    c.fillStyle = '#fff'; c.strokeStyle = '#2b1b14'; c.lineWidth = 2;
+    c.beginPath(); c.arc(-2, -8, 9, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#111';
+    c.beginPath(); c.arc(-2 + Math.cos(tt * 4) * 3.5, -8 + Math.sin(tt * 4) * 3.5, 4.5, 0, 6.3); c.fill();
+    c.restore();
+  }
+
+  function drawClose(c, t, u) {
+    var px = 860;
+    c.fillStyle = '#46546d'; c.fillRect(0, 0, W, H);
+    var rg = rng(11), shirts = ['#e5484d', '#3b82f6', '#f5b301', '#22a06b', '#ffffff', '#9b5de5'], i;
+    for (i = 0; i < 34; i++) {
+      c.fillStyle = shirts[i % 6]; c.globalAlpha = 0.35;
+      c.beginPath(); c.arc(rg() * W, 60 + rg() * 560, 50 + rg() * 40, 0, 6.3); c.fill();
+    }
+    c.globalAlpha = 1;
+
+    var laugh = u >= 5.2;
+    if (laugh) {
+      c.save();
+      c.translate(Math.sin(t * 30) * 4, Math.sin(t * 22) * 3);
+      c.translate(px, 480); c.rotate(Math.sin(t * 24) * 0.04); c.translate(-px, -480);
+    }
+    // audience member
+    c.fillStyle = '#3a2a24';
+    c.beginPath(); c.ellipse(px, 335, 150, 175, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#dfe8f3';
+    c.beginPath(); c.moveTo(px - 310, 730); c.quadraticCurveTo(px - 310, 480, px, 470); c.quadraticCurveTo(px + 310, 480, px + 310, 730); c.closePath(); c.fill();
+    c.fillStyle = '#e8b690'; c.fillRect(px - 40, 420, 80, 70);
+    c.strokeStyle = '#1d6fd8'; c.lineWidth = 14; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(px - 72, 470); c.lineTo(px, 560); c.lineTo(px + 72, 470); c.stroke();
+    c.fillStyle = '#fff'; rr(c, px - 56, 530, 112, 96, 10); c.fill();
+    c.strokeStyle = '#c3ccd8'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#1d6fd8'; rr(c, px - 56, 530, 112, 30, 10); c.fill(); c.fillRect(px - 56, 546, 112, 14);
+    c.fillStyle = '#fff'; c.font = '900 22px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('HP', px, 546);
+    c.fillStyle = '#1b2430'; c.font = '700 18px ' + FONT; c.fillText('員工證', px, 584);
+    c.fillStyle = '#cfd6de'; c.beginPath(); c.arc(px, 606, 8, 0, 6.3); c.fill();
+
+    c.fillStyle = '#f2c9a0';
+    c.beginPath(); c.ellipse(px, 325, 118, 132, 0, 0, 6.3); c.fill();
+    c.fillStyle = '#3a2a24';
+    c.beginPath(); c.ellipse(px, 232, 124, 74, 0, Math.PI, 0); c.fill();
+    c.beginPath(); c.moveTo(px - 124, 232); c.quadraticCurveTo(px - 118, 300, px - 90, 300); c.quadraticCurveTo(px - 60, 250, px - 20, 238); c.lineTo(px - 124, 232); c.fill();
+
+    var hes = u >= 2.4 && u < 4.2, smile = u >= 4.2;
+    var look = hes ? Math.sin(u * 5) * 12 : (u < 2.4 ? -12 : 4);
+    c.fillStyle = '#fff'; c.strokeStyle = '#8a6a55'; c.lineWidth = 2;
+    c.beginPath(); c.ellipse(px - 48, 330, 24, 26, 0, 0, 6.3); c.ellipse(px + 48, 330, 24, 26, 0, 0, 6.3); c.fill(); c.stroke();
+    c.fillStyle = '#1b1410';
+    c.beginPath(); c.arc(px - 48 + look * 0.6, 332, 11, 0, 6.3); c.arc(px + 48 + look * 0.6, 332, 11, 0, 6.3); c.fill();
+    if (laugh) {
+      var ex1 = px - 48, ex2 = px + 48;
+      c.fillStyle = '#f2c9a0';
+      c.beginPath(); c.ellipse(ex1, 328, 36, 32, 0, 0, 6.3); c.ellipse(ex2, 328, 36, 32, 0, 0, 6.3); c.fill();
+      c.strokeStyle = '#3a2a24'; c.lineWidth = 8; c.lineCap = 'round';
+      c.beginPath();
+      c.arc(ex1, 340, 25, Math.PI * 1.12, Math.PI * 1.88);
+      c.moveTo(ex2 + 25 * Math.cos(Math.PI * 1.12), 340 + 25 * Math.sin(Math.PI * 1.12));
+      c.arc(ex2, 340, 25, Math.PI * 1.12, Math.PI * 1.88);
+      c.stroke();
+      c.fillStyle = '#7fd4ff';
+      var tw = Math.abs(Math.sin(t * 9)) * 6;
+      c.beginPath(); c.ellipse(ex1 - 30, 352 + tw, 5, 8, 0, 0, 6.3); c.ellipse(ex2 + 30, 352 + tw, 5, 8, 0, 0, 6.3); c.fill();
+    } else if (smile) {
+      c.fillStyle = '#f2c9a0';
+      c.beginPath(); c.ellipse(px - 48, 312, 28, 12, 0, 0, 6.3); c.ellipse(px + 48, 312, 28, 12, 0, 0, 6.3); c.fill();
+    }
+    c.strokeStyle = '#3a2a24'; c.lineWidth = 7; c.lineCap = 'round';
+    c.beginPath();
+    if (laugh) { c.moveTo(px - 92, 262); c.lineTo(px - 32, 244); c.moveTo(px + 32, 244); c.lineTo(px + 92, 262); }
+    else { c.moveTo(px - 86, 282); c.lineTo(px - 28, 268); c.moveTo(px + 28, 268); c.lineTo(px + 86, 282); }
+    c.stroke();
+    c.fillStyle = 'rgba(255,110,120,0.35)';
+    c.beginPath(); c.ellipse(px - 78, 380, 20, 12, 0, 0, 6.3); c.ellipse(px + 78, 380, 20, 12, 0, 0, 6.3); c.fill();
+
+    c.strokeStyle = '#8a3b3b'; c.lineWidth = 7;
+    c.beginPath();
+    if (u < 2.4) { c.fillStyle = '#7a2f3a'; c.ellipse(px, 410, 16, 20, 0, 0, 6.3); c.fill(); }
+    else if (hes) {
+      c.moveTo(px - 40, 410);
+      for (var xx = -40; xx <= 40; xx += 8) c.lineTo(px + xx, 410 + Math.sin(xx * 0.4 + u * 9) * 5);
+      c.stroke();
+    } else if (laugh) {
+      var jaw = 0.5 + 0.5 * Math.abs(Math.sin(t * 14));
+      var lx = px - 74, rx2 = px + 74, my = 376, dep = 44 + jaw * 24;
+      c.fillStyle = '#5a0f20';
+      c.beginPath(); c.moveTo(lx, my - 6); c.quadraticCurveTo(px, my + dep * 2, rx2, my - 6); c.quadraticCurveTo(px, my + 8, lx, my - 6); c.closePath(); c.fill();
+      c.fillStyle = '#ff7b9c';
+      c.beginPath(); c.ellipse(px, my + dep * 0.72, 38, 16, 0, 0, 6.3); c.fill();
+      c.fillStyle = '#fff'; c.strokeStyle = '#ddd'; c.lineWidth = 1.5;
+      for (var ti = 0; ti < 9; ti++) {
+        var u2 = (ti + 0.5) / 9;
+        var yy2 = (1 - u2) * (1 - u2) * (my - 6) + 2 * (1 - u2) * u2 * (my + 8) + u2 * u2 * (my - 6);
+        var xx2 = lx + (rx2 - lx) * u2;
+        c.beginPath(); rrPath(c, xx2 - 7.5, yy2 - 1, 15, 17 + jaw * 3, 3); c.fill(); c.stroke();
+      }
+    } else {
+      c.moveTo(px - 46, 396); c.quadraticCurveTo(px, 422, px + 52, 384); c.stroke();
+      c.beginPath(); c.moveTo(px + 52, 384); c.lineTo(px + 60, 376); c.stroke();
+    }
+    if (u >= 2.4) {
+      var sy = 280 + (u - 2.4) * 26;
+      c.fillStyle = '#7fd4ff';
+      c.beginPath(); c.moveTo(px + 112, sy - 20); c.quadraticCurveTo(px + 134, sy + 8, px + 112, sy + 14); c.quadraticCurveTo(px + 90, sy + 8, px + 112, sy - 20); c.fill();
+    }
+
+    if (laugh) c.restore();
+    // horse comes in from the left
+    var slide = -420 * (1 - eout(u / 0.8));
+    c.save();
+    c.translate(230 + slide, 470); c.rotate(-0.12); c.scale(4.6, 4.6);
+    drawBigHead(c, DEF.grin, t);
+    c.restore();
+
+    if (u >= 0.9) {
+      var bk = oback((u - 0.9) / 0.35);
+      c.save();
+      c.translate(240, 150); c.scale(bk, bk);
+      c.fillStyle = '#fff'; c.strokeStyle = '#1b2430'; c.lineWidth = 4;
+      rr(c, -190, -50, 380, 100, 22); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-60, 48); c.lineTo(-20, 120); c.lineTo(10, 48); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#fff'; c.fillRect(-56, 44, 62, 8);
+      c.fillStyle = '#d93a72'; c.font = '900 52px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('你快樂馬？', 0, 4);
+      c.restore();
+    }
+
+
+    // options
+    if (u >= 1.6) {
+      var ok = oback((u - 1.6) / 0.4), picked = u >= 5.0;
+      var opts = [[250, '1　好快樂'], [670, '2　不快樂']];
+      for (i = 0; i < 2; i++) {
+        c.save();
+        c.translate(opts[i][0] + 180, 672); c.scale(ok, ok);
+        var sel = picked && i === 0;
+        c.fillStyle = sel ? '#ff8fb1' : '#ffffff';
+        c.strokeStyle = sel ? '#7a1f40' : '#1b2430'; c.lineWidth = 4;
+        rr(c, -180, -34, 360, 68, 18); c.fill(); c.stroke();
+        c.fillStyle = sel ? '#fff' : '#1b2430'; c.font = '900 34px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(opts[i][1], 0, 2);
+        c.restore();
+      }
+    }
+    if (u >= 4.2 && u < 5.0) {
+      var m = eio((u - 4.2) / 0.8);
+      var cx2 = px + 20 + (430 - px - 20) * m, cy2 = 450 + (672 - 450) * m;
+      c.fillStyle = '#fff'; c.strokeStyle = '#1b2430'; c.lineWidth = 3; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(cx2, cy2); c.lineTo(cx2 + 14, cy2 + 40); c.lineTo(cx2 + 24, cy2 + 26); c.lineTo(cx2 + 42, cy2 + 24); c.closePath(); c.fill(); c.stroke();
+    }
+    if (u >= 5.0) {
+      c.fillStyle = '#fff'; c.strokeStyle = '#1b2430'; c.lineWidth = 3;
+      rr(c, 920, 150, 340, 112, 18); c.fill(); c.stroke();
+      c.fillStyle = '#1b2430'; c.font = '900 42px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('好快樂噢~', 1090, 190);
+      c.font = '900 36px ' + FONT;
+      c.fillText('哈哈哈哈哈哈哈', 1090, 232);
+    }
+    if (u >= 3.4) {
+      var bk = oback(Math.min((u - 3.4) / 0.45, 1));
+      c.save();
+      c.translate(W / 2, 74); c.scale(bk, bk); c.rotate(-0.02);
+      c.font = '900 76px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineJoin = 'round'; c.lineWidth = 16; c.strokeStyle = '#1b2430';
+      var bt = '她毫不猶豫地選了 1！';
+      c.strokeText(bt, 0, 0);
+      c.fillStyle = '#ffd23f'; c.fillText(bt, 0, 0);
+      c.restore();
+    }
+  }
+
+  // ---------- camera, captions, overlays ----------
+  function camera(t) {
+    var cam = { cx: W / 2, cy: H / 2, S: 1 };
+    var e = ep, star = horses[2], an, u;
+    if (e.key === 'sea') {
+      var tF = e.stopT, be = e.belly;
+      var a = eio((t - (tF - 0.3)) / 0.9);
+      var b = eio((t - (tF + 2.0)) / 1.4);
+      var S1 = 1 + 0.8 * a, x1 = W / 2 + (be.x - W / 2) * a, y1 = H / 2 + (be.y - 60 - H / 2) * a;
+      cam.S = S1 * (1 - b) + 1.35 * b;
+      cam.cx = x1 * (1 - b) + 800 * b;
+      cam.cy = y1 * (1 - b) + 520 * b;
+    } else if (e.key === 'pixel') {
+      if (t >= e.C) {
+        an = anchor(star, 9 * CELL, 7 * CELL);
+        u = eio((t - e.C) / (e.D - e.C));
+        cam.cx = W / 2 + (an.x - W / 2) * u; cam.cy = H / 2 + (an.y - H / 2) * u; cam.S = 1 + 2.4 * u;
+        if (t >= e.D) { cam.cx = an.x + Math.sin(t * 7) * 3; cam.cy = an.y + Math.cos(t * 6) * 3; }
+      }
+    } else if (t >= e.C) {
+      an = anchor(star, 70, -34);
+      u = eio((t - e.C) / (e.D - e.C));
+      cam.cx = W / 2 + (an.x - W / 2) * u; cam.cy = H / 2 + (an.y - H / 2) * u; cam.S = 1 + 3.2 * u;
+    }
+    return cam;
+  }
+
+  function capFor(t) {
+    var e = ep;
+    if (t < A) return '預備…';
+    if (t < A + 0.9) return '';
+    if (e.key === 'sea') {
+      if (t < e.stopT) return '其中一匹在游泳';
+      if (t < e.stopT + 0.9) return '海馬跌倒了！';
+      if (t < e.stopT + 1.6) return '肚子裡好像有東西…';
+      if (t < e.crossAll - 1.8) return '海馬爸爸：我生了！我生了！';
+      if (t < e.crossAll) return '裁判：（默默吞口水）';
+      if (t < e.eatStart) return '恭喜！你中了 88！';
+      if (t < e.eatEnd) return '裁判：不好意思，我餓了';
+      return '裁判：（打嗝）';
+    }
+    if (e.key === 'pixel') {
+      if (t < e.t1) return '二維馬：衝！';
+      if (t < e.t2) return '二維馬：緩衝中…';
+      if (t < B - 0.9) return '它瞬間移動了';
+      if (t < B) return '衝線！';
+      if (t < e.C) return '裁判：我直接掃一下';
+      if (t < e.D) return '放大…再放大…';
+      if (t < e.E) return '掃描中…';
+      var u = t - e.E;
+      if (u < 1.2) return '載入中…';
+      if (u < 3.6) return '請先看完廣告';
+      if (u < 8.4) return '選出含有「牛」或「馬」的圖片';
+      return '你是牛或馬';
+    }
+    if (t < e.V) return '其中一匹笑得停不下來';
+    if (t < e.arrive) return '馬衝向觀眾席了！';
+    if (t < B) return '馬：我要問個問題';
+    if (t < e.D) return '隨便找一位觀眾…';
+    var g = t - e.D;
+    if (g < 1.6) return '';
+    if (g < 2.4) return '馬：你快樂馬？';
+    if (g < 5.0) return '她毫不猶豫地選了 1';
+    return '並哈哈大笑：哈哈哈哈哈哈啊哈ㄚㄚㄚㄚㄚㄚ';
+  }
+
+  function caption(c, text) {
+    c.save();
+    c.font = '700 32px ' + FONT;
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    var w = c.measureText(text).width + 56;
+    c.fillStyle = 'rgba(8,12,18,0.62)';
+    rr(c, W / 2 - w / 2, 646, w, 52, 26); c.fill();
+    c.fillStyle = '#fff';
+    c.fillText(text, W / 2, 673);
+    c.restore();
+  }
+
+  function drawCounter(c, t) {
+    var n = 0, m = 0, i;
+    for (i = 0; i < ep.babies.length; i++) {
+      if (ep.babies[i].tc <= t) n++;
+      if (ep.babies[i].eaten && ep.babies[i].te + 0.5 <= t) m++;
+    }
+    n -= m;
+    c.save();
+    c.fillStyle = '#0d1117'; rr(c, 36, 34, 300, 124, 14); c.fill();
+    c.strokeStyle = '#3b4452'; c.lineWidth = 3; c.stroke();
+    c.fillStyle = '#9fb3c8'; c.font = '700 22px ' + FONT; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText('過線小海馬', 56, 62);
+    c.fillStyle = '#ffb25c'; c.font = '900 72px ui-monospace, Menlo, Consolas, monospace';
+    c.textAlign = 'right';
+    c.fillText((n < 10 ? '0' : '') + n, 276, 114);
+    c.fillStyle = '#9fb3c8'; c.font = '700 26px ' + FONT; c.textAlign = 'left';
+    c.fillText('隻', 286, 124);
+    c.restore();
+  }
+
+  function inserts(c, t) {
+    var e = ep;
+    if (e.key === 'pixel') {
+      if (t >= e.D && t < e.E) drawScan(c, t, t - e.D);
+      if (t >= e.E) drawPhone(c, t, t - e.E);
+    } else if (e.key === 'grin') {
+      if (t >= e.D) drawClose(c, t, t - e.D);
+    }
+  }
+
+  function overlays(c, t) {
+    var e = ep;
+    if (e.key === 'grin' && t >= e.D && t < e.D + 0.35) {
+      var fa = 1 - (t - e.D) / 0.35;
+      c.fillStyle = 'rgba(255,255,255,' + (fa * fa).toFixed(3) + ')';
+      c.fillRect(0, 0, W, H);
+    }
+    if (t >= A && t < A + 0.8) {
+      var gk = oback((t - A) / 0.25);
+      c.save();
+      c.translate(W / 2 + Math.sin(t * 60) * 4, 300);
+      c.rotate(-0.1); c.scale(gk, gk);
+      c.font = '900 200px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 16; c.strokeStyle = '#1b2430'; c.lineJoin = 'round';
+      c.strokeText('砰！', 0, 0);
+      c.fillStyle = '#ffd23f'; c.fillText('砰！', 0, 0);
+      c.restore();
+    }
+
+    if (e.key === 'sea' && t >= e.refT) drawCounter(c, t);
+
+    var cap = capFor(t);
+    if (cap && t < e.G) caption(c, cap);
+
+    var sea = e.key === 'sea';
+    var cardT = sea ? e.crossAll + 0.4 : e.G;
+    if (t >= cardT) {
+      var live = e.num;
+      if (sea) {
+        var cnt = 0, mm = 0, ii;
+        for (ii = 0; ii < e.babies.length; ii++) {
+          if (e.babies[ii].tc <= t) cnt++;
+          if (e.babies[ii].eaten && e.babies[ii].te + 0.5 <= t) mm++;
+        }
+        live = String(cnt - mm);
+      }
+      var dim = sea ? 0.5 + 0.36 * clamp((t - e.G) / 0.6, 0, 1) : 0.86 * clamp((t - e.G) / 0.6, 0, 1);
+      var sp = 0;
+      if (sea) sp = Math.min(eio((t - (e.eatStart - 0.3)) / 0.4), 1 - eio((t - (e.eatEnd + 0.4)) / 0.5));
+      if (sp > 0) {
+        var cm = camera(t);
+        var hx = (1160 - cm.cx) * cm.S + W / 2, hy = (359 - cm.cy) * cm.S + H / 2 + 110;
+        var lg = c.createRadialGradient(hx, hy, 0, hx, hy, 400);
+        var lo = (dim * (1 - sp)).toFixed(3), hi = dim.toFixed(3);
+        lg.addColorStop(0, 'rgba(8,10,16,' + lo + ')');
+        lg.addColorStop(0.55, 'rgba(8,10,16,' + lo + ')');
+        lg.addColorStop(1, 'rgba(8,10,16,' + hi + ')');
+        c.fillStyle = lg;
+        c.fillRect(0, 0, W, H);
+        c.fillStyle = 'rgba(255,246,200,' + (0.16 * sp).toFixed(3) + ')';
+        c.beginPath(); c.moveTo(hx - 50, 0); c.lineTo(hx + 50, 0); c.lineTo(hx + 210, hy + 160); c.lineTo(hx - 210, hy + 160); c.closePath(); c.fill();
+      } else {
+        c.fillStyle = 'rgba(8,10,16,' + dim.toFixed(3) + ')';
+        c.fillRect(0, 0, W, H);
+      }
+      var ct = t - cardT;
+      var shk = (sea && t >= e.eatStart && t < e.eatEnd) ? Math.sin(t * 50) * 4 : 0;
+      c.globalAlpha = clamp((ct - 0.1) / 0.4, 0, 1);
+      c.fillStyle = '#fff'; c.font = '700 48px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('你抽到', W / 2, 170);
+      c.globalAlpha = 1;
+      var k = oback(clamp((ct - 0.3) / 0.6, 0, 1));
+      c.save();
+      c.translate(W / 2 + shk, 360); c.scale(k, k);
+      c.font = '900 280px ' + FONT; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineJoin = 'round'; c.lineWidth = 18; c.strokeStyle = '#7a1f40';
+      c.strokeText(live, 0, 0);
+      c.fillStyle = '#ff8fb1'; c.fillText(live, 0, 0);
+      c.restore();
+      c.globalAlpha = clamp((t - e.G - 1.1) / 0.5, 0, 1);
+      c.fillStyle = '#c9d2dd'; c.font = '500 36px ' + FONT;
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(e.line, W / 2, 560);
+      c.globalAlpha = 1;
+    }
+  }
+
+  function render(t) {
+    var cam = camera(t);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(W / 2, H / 2); ctx.scale(cam.S, cam.S); ctx.translate(-cam.cx, -cam.cy);
+    drawScene(ctx, t);
+    ctx.restore();
+    inserts(ctx, t);
+    overlays(ctx, t);
+  }
+
+  // ---------- transport ----------
+  var t = 0, playing = true, last = 0;
+  var playBtn = document.getElementById('play');
+  var replayBtn = document.getElementById('replay');
+  var seek = document.getElementById('seek');
+  var clock = document.getElementById('clock');
+  var tabs = document.getElementById('tabs');
+
+  function fmt(s) { var m = Math.floor(s / 60), r = Math.floor(s % 60); return m + ':' + (r < 10 ? '0' : '') + r; }
+  function syncUI() {
+    playBtn.textContent = playing ? '暫停' : (t >= ep.END ? '再看一次' : '播放');
+    seek.value = String(Math.round(t * 100));
+    clock.textContent = fmt(t) + ' / ' + fmt(ep.END);
+  }
+
+  function select(i) {
+    build(i);
+    t = 0; playing = true;
+    seek.max = String(Math.round(ep.END * 100));
+    Array.prototype.forEach.call(tabs.querySelectorAll('button'), function (b) {
+      b.setAttribute('aria-pressed', String(parseInt(b.getAttribute('data-ep'), 10) === i));
+    });
+    syncUI();
+  }
+
+  tabs.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (b) select(parseInt(b.getAttribute('data-ep'), 10));
+  });
+  playBtn.addEventListener('click', function () {
+    if (t >= ep.END) { t = 0; playing = true; } else { playing = !playing; }
+    syncUI();
+  });
+  replayBtn.addEventListener('click', function () { t = 0; playing = true; syncUI(); });
+  seek.addEventListener('input', function () { t = clamp(parseInt(seek.value, 10) / 100, 0, ep.END); syncUI(); });
+
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = Math.min(0.05, (ts - last) / 1000);
+    last = ts;
+    if (playing) {
+      t = Math.min(ep.END, t + dt);
+      if (t >= ep.END) playing = false;
+    }
+    render(t);
+    syncUI();
+    requestAnimationFrame(frame);
+  }
+
+  select(2);
+  tabs.style.display='none';
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    t = ep.END; playing = false;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
